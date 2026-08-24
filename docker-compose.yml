@@ -1,0 +1,84 @@
+name: commonwax
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-commonwax}:${POSTGRES_PASSWORD:-commonwax}@postgres:5432/${POSTGRES_DB:-commonwax}?schema=public
+      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_USERNAME: ${NAVIDROME_USERNAME:-admin}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD:-commonwax-navidrome}
+      MUSIC_DIR: /music
+      STAGING_DIR: /staging
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    volumes:
+      - music:/music
+      - staging:/staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      navidrome:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-commonwax}
+      POSTGRES_USER: ${POSTGRES_USER:-commonwax}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-commonwax}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-commonwax} -d ${POSTGRES_DB:-commonwax}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  navidrome:
+    image: deluan/navidrome:0.58.0
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+      ND_LOGLEVEL: info
+      ND_SCANSCHEDULE: "0"
+      ND_ENABLESHARING: "false"
+      ND_ENABLEUSEREDITING: "false"
+      ND_DEVAUTOCREATEADMINPASSWORD: ${NAVIDROME_PASSWORD:-commonwax-navidrome}
+    volumes:
+      - navidrome:/data
+      - music:/music:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4533/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  postgres:
+  navidrome:
+  music:
+  staging:

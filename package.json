@@ -1,0 +1,21 @@
+{
+  "name": "commonwax",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "predev": "npm run build -w @commonwax/shared && npm run build -w @commonwax/permissions && npm run build -w @commonwax/db",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @commonwax/api\" \"npm run dev -w @commonwax/web\"",
+    "build": "npm run build -w @commonwax/shared && npm run build -w @commonwax/permissions && npm run build -w @commonwax/db && npm run build -w @commonwax/api && npm run build -w @commonwax/web",
+    "test": "npm run test -w @commonwax/permissions && npm run test -w @commonwax/api && npm run test -w @commonwax/web",
+    "typecheck": "npm run typecheck -w @commonwax/shared && npm run typecheck -w @commonwax/permissions && npm run typecheck -w @commonwax/db && npm run typecheck -w @commonwax/api && npm run typecheck -w @commonwax/web",
+    "db:generate": "npm run generate -w @commonwax/db",
+    "db:migrate": "npm run migrate:dev -w @commonwax/db"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
