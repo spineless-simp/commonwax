@@ -1,93 +1,64 @@
-# Commonwax v0.1.0
+# Commonwax
 
-Commonwax is a native web client for a shared Navidrome collection. Navidrome owns cataloging, artwork, scanning, streaming, and transcoding; Commonwax owns accounts, membership, permissions, invitations, attribution, requests, preferences, and activity.
+Commonwax is a native web client for Navidrome, with the added ability to share and collaborate with other users who you choose to invite. Curate a catalog with your friends and family, and keep it all self hosted -- get closer with your people and save some cash by dropping your music subscription.
 
-This repository implements the workflow: create a Library, upload an album, invite a friend, listen together, request missing music, claim and fulfill the request with an upload, and retain attribution and activity throughout.
+# How does it work?
 
-## Deploy
+Navidrome is a well-respected application designed to help you self-host your music library. We take Navidrome and essentially layer a new frontend on top of it that handles all of the onboarding and social features. You'll never need to actually see Navidrome at all; everything happens inside of Commonwax instead.
 
-The only host prerequisites are Docker Engine and Docker Compose.
+## Setting it up
 
-```bash
-cp .env.example .env
-```
+First, someone needs to host Commonwax. The only prerequisites required are Docker + Docker Compose.
 
-Set `POSTGRES_PASSWORD` and `NAVIDROME_PASSWORD` in `.env` — both are required and have no default, so `docker compose` refuses to start without them. Set `PUBLIC_URL` to the URL friends will use; it must be reachable by invited users because invitation links are built from it. If that URL is `https://`, set `COOKIE_SECURE=true` or the API will refuse to start rather than send session cookies in cleartext.
+1. Clone the repo to the machine you want to run Commonwax from. Even a cheap VPS should work, and is probably the best way to go, but I have only tested locally.
 
-`FANART_API_KEY` is optional. With a key from [fanart.tv](https://fanart.tv/get-an-api-key/), artists browse under their own logos and an artist's page is led by their logo over their background image. Without one the deployment makes no outbound request for artwork and artists fall back to their name — nothing else changes. The images are fetched by the API, stored, and served from Commonwax's own origin, so no member's browser ever talks to fanart.tv.
+2. Set up your environment
+* Run `cp .env.example .env` and open it in your editor of choice.
+* Set `POSTGRES_PASSWORD` and `NAVIDROME_PASSWORD` to something unique.
+* Set `PUBLIC_URL` to the URL your users will use.
+    * If your server supports HTTPS, set `COOKIE_SECURE=true`.
+* (optional) Set `FANART_API_KEY`. Get your free key from [fanart.tv](https://fanart.tv/get-an-api-key/) to populate artist logos and background images. They're cached on the server, so the fetch only happens once (unless you run it manually).
 
-```bash
-docker compose up -d --build
-```
+3. `docker compose up -d --build` to get started. Once it's done, head to `localhost:8080` (or use your configured URL and port) to set up your admin account and get going.
 
-Open `http://localhost:8080` (or the configured `WEB_PORT`). The first-run screen asks only for the Owner account and Library name. Commonwax automatically applies PostgreSQL migrations and internally provisions the Navidrome service account; Navidrome's UI and credentials are never exposed to invited users.
+## Updating
 
-Named volumes hold all persistent state:
+There's no auto-update of any kind right now. Just run `git pull` and then `docker compose up -d --build` again.
 
-- `commonwax_postgres` — Commonwax accounts and social data
-- `commonwax_navidrome` — Navidrome's database and cache
-- `commonwax_music` — canonical, unmodified source audio
-- `commonwax_staging` — temporary uploads
+# Where does the music come from?
 
-Do not expose the Navidrome container port publicly; Commonwax proxies authenticated streams and artwork.
+Everything is local on the server, and users stream from it. It's like Spotify, but on your own computer instead of someone else's that you pay $14.99/month for, and you don't have to see Joe Rogan. Or audiobooks.
 
-### Backup and restore
+You can import music from in the app. It's a bit clunky right now, so if you have any suggestions for improvements, let me know or open a PR.
 
-Back the three stateful volumes up **together and from a stopped stack** — a
-Postgres dump taken while music is being imported can reference bindings for
-files the music volume snapshot does not yet contain.
+# What works
 
-```bash
-docker compose stop
-for v in postgres navidrome music; do
-  docker run --rm -v commonwax_$v:/from -v "$PWD/backup:/to" alpine \
-    tar czf "/to/$v.tar.gz" -C /from .
-done
-docker compose start
-```
+- Albums, artists, tracks, recently added, search, album details, and playback
+- Album requests and fufillment
+- Persistent play/pause, seek, previous/next, queueing
+- FLAC, MP3, AAC/M4A, ALAC, Ogg Vorbis, and Opus ingestion
+- Metadata validation
+- Owner, admin, and member roles
+    - Owners can do anything. Admins can do almost anything except destructive actions, and members can only listen, request, and upload
+- Activity status (see what everyone's listening to)
+- Basic user settings
 
-Restoring goes the other way, into a stack that is down, and `.env` has to come
-back with it — a restored database whose `NAVIDROME_PASSWORD` no longer matches
-leaves the API unable to reach its own catalog:
+# What's next?
 
-```bash
-docker compose down
-for v in postgres navidrome music; do
-  docker volume rm -f commonwax_$v
-  docker volume create commonwax_$v
-  docker run --rm -v commonwax_$v:/to -v "$PWD/backup:/from" alpine \
-    tar xzf "/from/$v.tar.gz" -C /to
-done
-docker compose up -d
-```
+- Import from an existing Navidrome installation
+- Bulk invites
+- Lidarr integration
+- Playlists
+    - Playlist migration from external services
+- Native mobile apps (don't count on this anytime soon, but the web version is mobile friendly)
 
-The staging volume holds only in-flight uploads and is not worth keeping.
-Resetting the deployment from the admin page has no undo and does not take a
-backup first; this is the only thing that makes it recoverable.
+# Notes
 
-The API container runs as the unprivileged `node` user. Docker gives a *new* named volume the ownership of the image's mount point, so fresh deployments need nothing extra. A deployment created before this change has root-owned `music` and `staging` volumes and needs a one-time fix, otherwise uploads fail with `EACCES`:
+This is very much a WIP, and comes from trying to solve a couple of problemms: I'm tired of not owning anything, and I want to share a music library with other people. Fragmented playlists across services and links that get lost kind of suck. This is, hopefully, a better experience.
 
-```bash
-docker compose run --rm --user root api chown -R node:node /music /staging
-```
+There is **no telemetry** of any kind baked into Commonwax. I have no idea what you're doing with it, or how well it's working. So, if you see anything funny, let me know so I can fix it.
 
-## What is implemented
-
-- Native Artists, Albums, Tracks, Recently Added, Search, album details, and playback
-- Persistent play/pause, seek, previous/next, and queue controls
-- FLAC, MP3, AAC/M4A (including ALAC), Ogg Vorbis, and Opus ingestion
-- Metadata validation, safe canonical paths, Navidrome scan, exact upload provenance matching, and retryable imports
-- Live catalog, metadata, artwork, path, and playback reads from Navidrome
-- Sparse UUID-backed media bindings created only when Commonwax-owned state needs a stable identity
-- Conservative MusicBrainz/ISRC rebinding when Navidrome IDs change, with unavailable historical records when identity is uncertain
-- Owner, Admin, and Member roles backed by effective permission sets and API middleware
-- One-use invitation links with direct account creation and Library entry
-- Contributor/album/track attribution and “Added by” display
-- Open, claimed, and fulfilled music requests, cancellable by the requester or a library manager
-- Reusable activity events for additions, joins, request creation, claims, and fulfillment
-- Personal album hiding and restoration, separate from permission-gated canonical removal
-- Host-facing admin page: restarting individual services or the whole stack, withholding uploads from one member, removing a member with an explicit choice about their music, and resetting the deployment to a fresh install
-- Multi-Library-ready account and membership schema (the v0.0.1 UI selects the first membership)
+# Nerd shit
 
 ## Architecture
 
@@ -174,88 +145,3 @@ docker compose logs --tail=200 api
 These require the invoking user to be able to reach the Docker daemon — on a
 single-user host, `sudo usermod -aG docker $USER` followed by a new login. No
 `sudo` after that.
-
-### Watch mode, for visual iteration
-
-`npm run stack:reload` is fast enough for most work, but it still costs a
-rebuild and loses whatever state the page was in. For sustained visual work —
-spacing, color, the tenth pass on a layout — run the API and web app as host
-processes instead:
-
-```bash
-npm run dev
-# http://localhost:5173
-```
-
-`npm run dev` builds the `packages/*` workspaces, starts a separate Postgres and
-Navidrome from `docker-compose.dev.yml`, applies migrations, then runs the API on
-port 3000 and Vite on 5173 with `/api` proxied to it. tsx watches the API and
-Vite hot-reloads the web app, so a change is live without a rebuild and without
-losing component state. Logs stream to that terminal.
-
-Its environment is the committed `.env.dev`, then `.env.dev.local` if present.
-Every value in `.env.dev` is a fixed local constant; a development secret — a
-fanart.tv key — belongs in the gitignored `.env.dev.local`. `.env` holds
-deployment secrets and is not read here.
-
-The development services are their own Compose project (`commonwax-dev`) with
-their own volumes, published on 127.0.0.1 only — Postgres on 5433 and Navidrome
-on 4534, off the default ports so they cannot be mistaken for a deployment.
-Uploads write to `./music`, the directory bind-mounted into the development
-Navidrome, so the upload → scan → import pipeline behaves as it does in
-production. The library starts empty.
-
-| Command | Effect |
-| --- | --- |
-| `npm run dev` | Development services, migrations, and both watchers |
-| `npm run dev:services` | Start development Postgres and Navidrome only |
-| `npm run dev:services:logs` | Follow their logs |
-| `npm run dev:services:down` | Stop them, keeping the development library and database |
-| `npm run dev:services:reset` | Stop them and delete their volumes — an empty library again |
-| `npm run db:migrate` | Author a new migration against the development database |
-
-If `npm run dev` ever appears to ignore your configuration, check which process
-owns port 3000. `concurrently` restarts its children, so killing the API alone
-leaves a supervisor that respawns it with the old environment:
-
-```bash
-ss -ltnp | grep -E ':3000|:5173'
-```
-
-### A second isolated stack
-
-The destructive admin actions need somewhere safe to run. `DOCKER_PROJECT` names
-both the Compose project and the containers the API addresses, so a fully
-separate stack — its own containers, its own volumes — is one variable:
-
-```bash
-DOCKER_PROJECT=commonwax-probe WEB_PORT=8099 docker compose --env-file probe.env up -d --build
-# ... exercise it ...
-DOCKER_PROJECT=commonwax-probe docker compose --env-file probe.env down -v
-```
-
-## Verification
-
-```bash
-npm run build
-npm run typecheck
-npm test
-npm audit --omit=dev
-```
-
-`.github/workflows/ci.yml` runs all four on every push and pull request, and additionally builds both container images and asserts that `docker compose config` fails when the required passwords are absent.
-
-Checked-in migrations are under `packages/db/prisma/migrations`, including the sparse-media-binding conversion. The permission matrix is centralized in `packages/permissions`; route handlers ask for permissions, never role names, except where role hierarchy itself is the managed object (for example, only an Owner can promote an Admin).
-
-## Operational notes
-
-- Uploads are limited to 1 GiB per file, 200 files, and 20 GiB total per batch. The batch limit is enforced from the declared `Content-Length` before any bytes reach the staging volume.
-- Sign-in, first-run setup, and invitation endpoints are rate limited per client address (10 credential attempts and 30 invitation lookups per 15 minutes). The counters live in the API process, so a horizontally scaled deployment would need a shared store instead.
-- Expired sessions are swept at startup and every six hours.
-- The upload request waits for Navidrome's scan for up to 90 seconds, then binds only uploaded tracks that match their exact temporary Commonwax canonical paths. An ambiguous or missing match fails closed and can be retried through the API; successful imports discard that path staging data.
-- Commonwax asks Navidrome for browser-compatible MP3 streams; original source files are never transcoded in place or modified.
-- Removing an album deletes the files Navidrome's own REST API reports on disk and starts a scan, pruning directories it empties. The paths come from `/api/song` rather than from OpenSubsonic, whose `path` is synthesized from tags and does not name the file. Commonwax bindings, attribution, fulfilled requests, and activity remain as unavailable historical context.
-- Admin and Owner reach an admin page; Members have neither the route nor a navigation entry to it. Restarts go through `docker-proxy`, a haproxy in front of the Docker socket configured `CONTAINERS=0, POST=1, ALLOW_RESTARTS=1`, which permits `POST /containers/<name>/restart` and answers 403 to listing, inspecting, creating, starting, and exec. The API therefore cannot read container state, and the page reports the health it can see rather than claiming otherwise. Without `DOCKER_PROXY_URL` — in development, or a deployment that removes the service — the restart controls are hidden and the endpoint answers 503.
-- Withholding uploads from a member subtracts `music:contribute` and `request:fulfill` from whatever their role grants, rather than snapshotting a permission list, so it survives a later role change and lifting it restores their current role exactly.
-- Removing a member erases their account, ends their sessions, and requires an explicit `music=keep|delete`. Kept, their contributions stay and read as “someone”, a name no account may take. Deleted, only albums nobody else contributed to are removed; an album a second member also added is left intact and only the erased account's claim on it is dropped.
-- Resetting the deployment (Owner only, behind a dialog and a ten-second held press) empties `MUSIC_DIR` and staging, rescans Navidrome, and truncates every Commonwax table except the Prisma migration ledger. Navidrome's own users and settings live in a volume the API does not mount and are untouched. There is no backup and no undo.
