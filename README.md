@@ -1,6 +1,6 @@
 # Commonwax
 
-Commonwax is a native web client for Navidrome, with the added ability to share and collaborate with other users who you choose to invite. Curate a catalog with your friends and family, and keep it all self hosted -- get closer with your people and save some cash by dropping your music subscription.
+Commonwax is a native web client for [Navidrome](https://github.com/navidrome/navidrome), with the added ability to share and collaborate with other users who you choose to invite. Curate a catalog with your friends and family, and keep it all self hosted -- get closer with your people and save some cash by dropping your music subscription.
 
 # How does it work?
 
