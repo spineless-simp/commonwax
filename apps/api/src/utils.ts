@@ -4,10 +4,6 @@ import { resolve, sep } from "node:path";
 export const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 export const randomToken = () => randomBytes(32).toString("base64url");
 
-export function cleanText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 export function normalized(value: string): string {
   return value.normalize("NFKD").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }

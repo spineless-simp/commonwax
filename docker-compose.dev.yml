@@ -1,0 +1,73 @@
+# Development services for `npm run dev`: Postgres and Navidrome only. The API
+# and web app run on the host, so a code change is picked up by tsx watch and
+# Vite HMR instead of an image rebuild.
+#
+# This is a standalone Compose file, not an override of docker-compose.yml, on
+# purpose. The host-run API applies migrations and writes into the music
+# directory, and neither may touch the deployed stack's volumes. It therefore
+# runs as its own project (`commonwax-dev`, from the `name:` below) with its own
+# `postgres` and `navidrome` volumes. `npm run stack:*` is the deployed stack;
+# `npm run dev:services:*` is this one. They never share state.
+#
+# The credentials here are fixed literals rather than `.env` references. Both
+# services publish on 127.0.0.1 only and hold throwaway development data, and
+# the real deployment secrets should not be loaded into a process that a
+# development database URL is also pointing at. `.env` is never read here.
+
+name: commonwax-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: commonwax
+      POSTGRES_USER: commonwax
+      POSTGRES_PASSWORD: commonwax
+    # Not 5432: a development database must never be what you reach by typing
+    # the default port out of habit.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commonwax -d commonwax"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  navidrome:
+    image: deluan/navidrome:0.58.0
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+      ND_LOGLEVEL: info
+      ND_SCANSCHEDULE: "0"
+      ND_ENABLESHARING: "false"
+      ND_ENABLEUSEREDITING: "false"
+      ND_DEVAUTOCREATEADMINPASSWORD: commonwax-navidrome
+    ports:
+      - "127.0.0.1:4534:4533"
+    volumes:
+      - navidrome:/data
+      # Bind-mounted, not a named volume: the API runs on the host in
+      # development, so it and Navidrome have to see the same files. Read-only
+      # for the same reason as in production — Navidrome never writes source
+      # audio. `./music` is gitignored.
+      - ./music:/music:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4533/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  postgres:
+  navidrome:

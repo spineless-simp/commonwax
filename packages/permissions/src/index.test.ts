@@ -16,4 +16,13 @@ describe("role permissions", () => {
   it("uses an explicit override as the effective permission set", () => {
     expect(permissionsFor("OWNER", [Permission.LISTEN])).toEqual([Permission.LISTEN]);
   });
+
+  it("lets admins restart services but not end the collection", () => {
+    // Restarting is recoverable and belongs to whoever keeps the thing running;
+    // emptying it is not, and stays with the one account that cannot be removed.
+    expect(can("ADMIN", Permission.CONTROL_SERVICES)).toBe(true);
+    expect(can("OWNER", Permission.CONTROL_SERVICES)).toBe(true);
+    expect(can("MEMBER", Permission.CONTROL_SERVICES)).toBe(false);
+    expect(can("ADMIN", Permission.MANAGE_LIBRARY)).toBe(false);
+  });
 });

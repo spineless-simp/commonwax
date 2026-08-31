@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, typecheck, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` fails when package.json and the lockfile disagree, which also
+      # makes this the check that the lockfile was committed with the change.
+      - run: npm ci
+
+      # Builds in dependency order: permissions -> shared -> db -> api -> web.
+      # apps/* compile against the packages' build output, not their source, so
+      # this has to run before typecheck and test.
+      - run: npm run build
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Runtime dependencies are what ship to users; a high-severity advisory
+      # there fails the build. Dev-only advisories are reported, not enforced.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit || true
+
+  images:
+    name: Container images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  compose:
+    name: Compose file is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The compose file now refuses to interpolate without real secrets, so
+      # this proves the required-variable guards actually fire.
+      - name: Reject a deploy with no passwords set
+        run: |
+          if docker compose config >/dev/null 2>&1; then
+            echo "docker-compose.yml interpolated without POSTGRES_PASSWORD/NAVIDROME_PASSWORD set" >&2
+            exit 1
+          fi
+      - name: Validate with passwords supplied
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          NAVIDROME_PASSWORD: ci-navidrome-password
+        run: docker compose config >/dev/null

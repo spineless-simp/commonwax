@@ -6,7 +6,9 @@ export const Permission = {
   FULFILL_REQUEST: "request:fulfill",
   INVITE_MEMBERS: "members:invite",
   MANAGE_MEMBERS: "members:manage",
-  MANAGE_LIBRARY: "library:manage"
+  MANAGE_LIBRARY: "library:manage",
+  /** Restarting the services the deployment runs on. Never member-facing. */
+  CONTROL_SERVICES: "services:control"
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
@@ -21,8 +23,8 @@ const member = [
 
 export const ROLE_PERMISSIONS: Record<LibraryRole, readonly Permission[]> = {
   MEMBER: member,
-  ADMIN: [...member, Permission.REMOVE_MUSIC, Permission.INVITE_MEMBERS, Permission.MANAGE_MEMBERS],
-  OWNER: [...member, Permission.REMOVE_MUSIC, Permission.INVITE_MEMBERS, Permission.MANAGE_MEMBERS, Permission.MANAGE_LIBRARY]
+  ADMIN: [...member, Permission.REMOVE_MUSIC, Permission.INVITE_MEMBERS, Permission.MANAGE_MEMBERS, Permission.CONTROL_SERVICES],
+  OWNER: [...member, Permission.REMOVE_MUSIC, Permission.INVITE_MEMBERS, Permission.MANAGE_MEMBERS, Permission.CONTROL_SERVICES, Permission.MANAGE_LIBRARY]
 };
 
 export function permissionsFor(role: LibraryRole, overrides?: string[] | null): Permission[] {

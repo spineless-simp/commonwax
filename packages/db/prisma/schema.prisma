@@ -17,7 +17,6 @@ enum RequestStatus {
   OPEN
   CLAIMED
   FULFILLED
-  CANCELLED
 }
 
 enum UploadStatus {
@@ -36,38 +35,48 @@ enum ActivityType {
 }
 
 model User {
-  id                   String          @id @default(uuid()) @db.Uuid
-  email                String          @unique
-  displayName          String
-  passwordHash         String
-  createdAt            DateTime        @default(now())
-  memberships          Membership[]
-  sessions             Session[]
-  invitationsCreated   Invitation[]    @relation("InvitationCreator")
-  invitationsAccepted  Invitation[]    @relation("InvitationAcceptor")
-  uploads              UploadBatch[]
-  contributions        Contribution[]
-  requestedMusic       MusicRequest[]  @relation("Requester")
-  claimedMusic         MusicRequest[]  @relation("Claimant")
-  fulfilledMusic       MusicRequest[]  @relation("Fulfiller")
-  activities           ActivityEvent[] @relation("ActivityActor")
-  hiddenAlbums         HiddenAlbum[]
+  id                  String          @id @default(uuid()) @db.Uuid
+  email               String          @unique
+  displayName         String
+  passwordHash        String
+  createdAt           DateTime        @default(now())
+  // The picture itself, not a path: it is small, it is Commonwax's own data
+  // rather than catalog media, and keeping it here means no second volume whose
+  // ownership and backup story would have to be settled separately. `avatarType`
+  // is the type sniffed from the bytes on upload, never the one the client
+  // claimed. `avatarUpdatedAt` is what the URL is versioned on so a replaced
+  // picture is not served from cache.
+  avatar              Bytes?
+  avatarType          String?
+  avatarUpdatedAt     DateTime?
+  memberships         Membership[]
+  sessions            Session[]
+  invitationsCreated  Invitation[]    @relation("InvitationCreator")
+  invitationsAccepted Invitation[]    @relation("InvitationAcceptor")
+  uploads             UploadBatch[]
+  contributions       Contribution[]
+  requestedMusic      MusicRequest[]  @relation("Requester")
+  claimedMusic        MusicRequest[]  @relation("Claimant")
+  fulfilledMusic      MusicRequest[]  @relation("Fulfiller")
+  activities          ActivityEvent[] @relation("ActivityActor")
+  hiddenAlbums        HiddenAlbum[]
+  listeningNow        ListeningNow?
 }
 
 model Library {
-  id            String          @id @default(uuid()) @db.Uuid
+  id            String              @id @default(uuid()) @db.Uuid
   name          String
-  createdAt     DateTime        @default(now())
+  createdAt     DateTime            @default(now())
   memberships   Membership[]
   invitations   Invitation[]
-  artists       Artist[]
-  albums        Album[]
-  tracks        Track[]
+  albumBindings MediaAlbumBinding[]
+  trackBindings MediaTrackBinding[]
   uploads       UploadBatch[]
   contributions Contribution[]
   requests      MusicRequest[]
   activities    ActivityEvent[]
   hiddenAlbums  HiddenAlbum[]
+  listeningNow  ListeningNow[]
 }
 
 model Membership {
@@ -76,6 +85,10 @@ model Membership {
   libraryId           String   @db.Uuid
   role                Role     @default(MEMBER)
   permissionOverrides Json?
+  // Set when an admin withholds contribution from this member. It subtracts the
+  // two contribution permissions from whatever their role grants rather than
+  // snapshotting a permission list, so a later role change still lands.
+  uploadsBlockedAt    DateTime?
   joinedAt            DateTime @default(now())
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   library             Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
@@ -100,168 +113,153 @@ model Invitation {
   id           String    @id @default(uuid()) @db.Uuid
   tokenHash    String    @unique
   libraryId    String    @db.Uuid
-  createdById  String    @db.Uuid
+  createdById  String?   @db.Uuid
   acceptedById String?   @db.Uuid
   role         Role      @default(MEMBER)
   expiresAt    DateTime
   acceptedAt   DateTime?
   createdAt    DateTime  @default(now())
   library      Library   @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  createdBy    User      @relation("InvitationCreator", fields: [createdById], references: [id])
-  acceptedBy   User?     @relation("InvitationAcceptor", fields: [acceptedById], references: [id])
+  createdBy    User?     @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  acceptedBy   User?     @relation("InvitationAcceptor", fields: [acceptedById], references: [id], onDelete: SetNull)
 
   @@index([libraryId])
 }
 
-model Artist {
-  id           String   @id @default(uuid()) @db.Uuid
-  libraryId    String   @db.Uuid
-  navidromeId  String
-  name         String
-  albumCount   Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  library      Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  albums       Album[]
-  tracks       Track[]
+// These rows are sparse Commonwax-owned identity/provenance bindings. Navidrome
+// remains authoritative for whether media exists and for all current catalog data.
+model MediaAlbumBinding {
+  id              String              @id @default(uuid()) @db.Uuid
+  libraryId       String              @db.Uuid
+  navidromeId     String?
+  musicBrainzId   String?
+  lastKnownTitle  String              @map("title")
+  lastKnownArtist String
+  lastKnownYear   Int?                @map("year")
+  lastKnownDuration Int?              @map("duration")
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  library         Library             @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  trackBindings   MediaTrackBinding[]
+  contributions   Contribution[]
+  fulfilledFor    MusicRequest[]      @relation("FulfilledAlbum")
+  hiddenBy        HiddenAlbum[]
 
   @@unique([libraryId, navidromeId])
-  @@index([libraryId, name])
+  @@index([libraryId, musicBrainzId])
+  @@map("Album")
 }
 
-model Album {
-  id             String         @id @default(uuid()) @db.Uuid
-  libraryId      String         @db.Uuid
-  artistId       String         @db.Uuid
-  navidromeId    String
-  title          String
-  year           Int?
-  genre          String?
-  songCount      Int            @default(0)
-  duration       Int            @default(0)
-  coverArt       String?
-  navidromeAdded DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  library        Library        @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  artist         Artist         @relation(fields: [artistId], references: [id])
-  tracks         Track[]
-  contributions  Contribution[]
-  fulfilledFor   MusicRequest[] @relation("FulfilledAlbum")
-  hiddenBy       HiddenAlbum[]
+model MediaTrackBinding {
+  id                   String              @id @default(uuid()) @db.Uuid
+  libraryId            String              @db.Uuid
+  albumBindingId       String              @map("albumId") @db.Uuid
+  navidromeId          String?
+  musicBrainzId        String?
+  isrcs                String[]            @default([])
+  lastKnownTitle       String              @map("title")
+  lastKnownArtist      String
+  lastKnownDiscNumber  Int                 @default(1) @map("discNumber")
+  lastKnownTrackNumber Int?                @map("trackNumber")
+  lastKnownDuration    Int?                @map("duration")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  library              Library             @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  albumBinding         MediaAlbumBinding   @relation(fields: [albumBindingId], references: [id], onDelete: Cascade)
+  contributions        ContributionTrack[]
 
   @@unique([libraryId, navidromeId])
-  @@index([libraryId, title])
-  @@index([artistId])
-}
-
-model Track {
-  id            String              @id @default(uuid()) @db.Uuid
-  libraryId     String              @db.Uuid
-  artistId      String              @db.Uuid
-  albumId       String              @db.Uuid
-  navidromeId   String
-  title         String
-  discNumber    Int                 @default(1)
-  trackNumber   Int?
-  duration      Int                 @default(0)
-  suffix        String?
-  contentType   String?
-  bitRate       Int?
-  path          String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  library       Library             @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  artist        Artist              @relation(fields: [artistId], references: [id])
-  album         Album               @relation(fields: [albumId], references: [id], onDelete: Cascade)
-  contributions ContributionTrack[]
-
-  @@unique([libraryId, navidromeId])
-  @@index([albumId, discNumber, trackNumber])
-  @@index([libraryId, title])
+  @@index([libraryId, musicBrainzId])
+  @@index([albumBindingId, lastKnownDiscNumber, lastKnownTrackNumber])
+  @@map("Track")
 }
 
 model UploadBatch {
-  id           String         @id @default(uuid()) @db.Uuid
-  libraryId    String         @db.Uuid
-  uploaderId   String         @db.Uuid
-  requestId    String?        @db.Uuid
-  status       UploadStatus   @default(STAGED)
-  stagingPath  String
-  error        String?
-  createdAt    DateTime       @default(now())
-  completedAt  DateTime?
-  library      Library        @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  uploader     User           @relation(fields: [uploaderId], references: [id])
-  request      MusicRequest?  @relation(fields: [requestId], references: [id])
-  files        UploadFile[]
+  id            String         @id @default(uuid()) @db.Uuid
+  libraryId     String         @db.Uuid
+  uploaderId    String?        @db.Uuid
+  requestId     String?        @db.Uuid
+  status        UploadStatus   @default(STAGED)
+  stagingPath   String
+  error         String?
+  createdAt     DateTime       @default(now())
+  completedAt   DateTime?
+  library       Library        @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  uploader      User?          @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  request       MusicRequest?  @relation(fields: [requestId], references: [id])
+  files         UploadFile[]
   contributions Contribution[]
 
   @@index([libraryId, createdAt])
 }
 
 model UploadFile {
-  id                String      @id @default(uuid()) @db.Uuid
-  uploadBatchId     String      @db.Uuid
-  originalName      String
-  stagedName        String
-  canonicalPath     String?
-  detectedArtist    String?
-  detectedAlbum     String?
-  detectedTitle     String?
-  uploadBatch       UploadBatch @relation(fields: [uploadBatchId], references: [id], onDelete: Cascade)
+  id                   String      @id @default(uuid()) @db.Uuid
+  uploadBatchId        String      @db.Uuid
+  originalName         String
+  stagedName           String
+  pendingCanonicalPath String?     @map("canonicalPath")
+  detectedArtist       String?
+  detectedAlbum        String?
+  detectedTitle        String?
+  detectedDuration     Int         @default(0)
+  uploadBatch          UploadBatch @relation(fields: [uploadBatchId], references: [id], onDelete: Cascade)
 
   @@index([uploadBatchId])
 }
 
 model Contribution {
-  id            String              @id @default(uuid()) @db.Uuid
-  libraryId     String              @db.Uuid
-  contributorId String              @db.Uuid
-  uploadBatchId String              @db.Uuid
-  albumId       String              @db.Uuid
-  createdAt     DateTime            @default(now())
-  library       Library             @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  contributor   User                @relation(fields: [contributorId], references: [id])
-  uploadBatch   UploadBatch         @relation(fields: [uploadBatchId], references: [id])
-  album         Album               @relation(fields: [albumId], references: [id])
-  tracks        ContributionTrack[]
+  id             String              @id @default(uuid()) @db.Uuid
+  libraryId      String              @db.Uuid
+  // Null once the account behind it is erased. The contribution survives, so the
+  // music keeps a provenance record; it is simply no longer anybody's name.
+  contributorId  String?             @db.Uuid
+  uploadBatchId  String              @db.Uuid
+  albumBindingId String              @map("albumId") @db.Uuid
+  createdAt      DateTime            @default(now())
+  library        Library             @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  contributor    User?               @relation(fields: [contributorId], references: [id], onDelete: SetNull)
+  uploadBatch    UploadBatch         @relation(fields: [uploadBatchId], references: [id])
+  albumBinding   MediaAlbumBinding   @relation(fields: [albumBindingId], references: [id])
+  tracks         ContributionTrack[]
 
-  @@unique([uploadBatchId, albumId])
+  @@unique([uploadBatchId, albumBindingId], map: "Contribution_uploadBatchId_albumId_key")
   @@index([libraryId, createdAt])
 }
 
 model ContributionTrack {
-  contributionId String       @db.Uuid
-  trackId        String       @db.Uuid
-  contribution   Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
-  track          Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  contributionId String            @db.Uuid
+  trackBindingId String            @map("trackId") @db.Uuid
+  contribution   Contribution      @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  trackBinding   MediaTrackBinding @relation(fields: [trackBindingId], references: [id], onDelete: Cascade)
 
-  @@id([contributionId, trackId])
+  @@id([contributionId, trackBindingId])
 }
 
 model MusicRequest {
-  id               String         @id @default(uuid()) @db.Uuid
-  libraryId        String         @db.Uuid
-  artist           String
-  album            String
-  requesterId      String         @db.Uuid
-  claimantId       String?        @db.Uuid
-  fulfillerId      String?        @db.Uuid
-  fulfilledAlbumId String?        @db.Uuid
-  status           RequestStatus  @default(OPEN)
-  createdAt        DateTime       @default(now())
-  claimedAt        DateTime?
-  fulfilledAt      DateTime?
-  cancelledAt      DateTime?
-  library          Library        @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  requester        User           @relation("Requester", fields: [requesterId], references: [id])
-  claimant         User?          @relation("Claimant", fields: [claimantId], references: [id])
-  fulfiller        User?          @relation("Fulfiller", fields: [fulfillerId], references: [id])
-  fulfilledAlbum   Album?         @relation("FulfilledAlbum", fields: [fulfilledAlbumId], references: [id])
-  uploads          UploadBatch[]
+  id                          String             @id @default(uuid()) @db.Uuid
+  libraryId                   String             @db.Uuid
+  artist                      String
+  album                       String
+  musicBrainzReleaseGroupId   String?            @db.VarChar(36)
+  year                        Int?
+  requesterId                 String?            @db.Uuid
+  claimantId                  String?            @db.Uuid
+  fulfillerId                 String?            @db.Uuid
+  fulfilledAlbumBindingId     String?            @map("fulfilledAlbumId") @db.Uuid
+  status                      RequestStatus      @default(OPEN)
+  createdAt                   DateTime           @default(now())
+  claimedAt                   DateTime?
+  fulfilledAt                 DateTime?
+  library                     Library            @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  requester                   User?              @relation("Requester", fields: [requesterId], references: [id], onDelete: SetNull)
+  claimant                    User?              @relation("Claimant", fields: [claimantId], references: [id], onDelete: SetNull)
+  fulfiller                   User?              @relation("Fulfiller", fields: [fulfillerId], references: [id], onDelete: SetNull)
+  fulfilledAlbumBinding       MediaAlbumBinding? @relation("FulfilledAlbum", fields: [fulfilledAlbumBindingId], references: [id])
+  uploads                     UploadBatch[]
 
   @@index([libraryId, status, createdAt])
+  @@index([libraryId, musicBrainzReleaseGroupId])
 }
 
 model ActivityEvent {
@@ -277,15 +275,57 @@ model ActivityEvent {
   @@index([libraryId, createdAt])
 }
 
-model HiddenAlbum {
-  userId    String   @db.Uuid
-  libraryId String   @db.Uuid
-  albumId   String   @db.Uuid
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  album     Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+// Transient listening presence, not a play history and not catalog data: one row
+// per listener holding the opaque catalog reference they are on. Navidrome still
+// resolves what that reference currently is, and a row is meaningless once stale.
+model ListeningNow {
+  userId         String   @id @db.Uuid
+  libraryId      String   @db.Uuid
+  trackReference String
+  startedAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  library        Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
 
-  @@id([userId, albumId])
+  @@index([libraryId, updatedAt])
+}
+
+model HiddenAlbum {
+  userId         String            @db.Uuid
+  libraryId      String            @db.Uuid
+  albumBindingId String            @map("albumId") @db.Uuid
+  createdAt      DateTime          @default(now())
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  library        Library           @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  albumBinding   MediaAlbumBinding @relation(fields: [albumBindingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, albumBindingId])
   @@index([libraryId])
+}
+
+// Artist logos and backgrounds fetched from fanart.tv. Not catalog data and not
+// a binding: Navidrome still says what music exists, and every image column here
+// is a cache of a third party's artwork that can be absent today and present in
+// a month. Nothing in the product depends on a row existing.
+//
+// Keyed by the artist's name rather than a MusicBrainz id because the files in a
+// collection are not required to carry one — `musicBrainzId` is the result of
+// the lookup, not its input. A row with `checkedAt` set and a null
+// `musicBrainzId` is a recorded miss, which is what stops an unresolvable name
+// being searched again on every page load.
+model ArtistArtwork {
+  id             String   @id @default(uuid()) @db.Uuid
+  // `normalized()` of the artist name, the one key every artist has.
+  nameKey        String   @unique
+  name           String
+  musicBrainzId  String?
+  logo           Bytes?
+  logoType       String?
+  background     Bytes?
+  backgroundType String?
+  // When the lookup last ran, hit or miss. Misses are retried sooner than hits
+  // are refreshed: an artist nobody has drawn a logo for yet may acquire one,
+  // while an artist who has one rarely gets a different one.
+  checkedAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

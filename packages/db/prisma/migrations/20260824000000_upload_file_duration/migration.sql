@@ -1,0 +1,1 @@
+ALTER TABLE "UploadFile" ADD COLUMN "detectedDuration" INTEGER NOT NULL DEFAULT 0;

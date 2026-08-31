@@ -1,4 +1,8 @@
-name: commonwax
+# One variable names the project and tells the API what to call its containers,
+# so the two can never disagree. Overriding it stands up a second, isolated
+# stack — its own containers, its own volumes — which is how the destructive
+# admin actions get exercised without touching a real deployment.
+name: ${DOCKER_PROJECT:-commonwax}
 
 services:
   web:
@@ -11,6 +15,63 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Docker stamps a fresh named volume with the ownership of whichever image
+  # mounts it first, and that is never the API: it waits for Navidrome to pass
+  # its healthcheck, and Navidrome's image carries a root-owned /music. The API
+  # runs as `node`, so it would find the music volume unwritable and fail every
+  # upload with EACCES. Normalising ownership in a one-shot the API waits on
+  # makes it independent of start order, and repairs volumes created before the
+  # API dropped root.
+  music-permissions:
+    image: node:22-alpine
+    user: root
+    command: chown -R node:node /music
+    volumes:
+      - music:/music
+    restart: "no"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # The Docker Engine, narrowed to one verb.
+  #
+  # The admin panel restarts services, which means the API needs to reach
+  # dockerd — and a mounted `/var/run/docker.sock` is root on this host, so it
+  # does not get one. `CONTAINERS=0` with `ALLOW_RESTARTS=1` permits exactly
+  # `POST /containers/<name>/restart`; listing, inspecting, creating, starting,
+  # and exec are all refused with 403 by haproxy before they reach the socket.
+  # Verified against tecnativa/docker-socket-proxy:0.3.0 by calling each of
+  # those paths through it.
+  #
+  # `POST=1` is required and is not a general grant: the template denies every
+  # non-GET method before its per-path rules run, so the restart rule is
+  # unreachable without it. Turning on CONTAINERS here would re-open
+  # `POST /containers/create` — a container that mounts the host root — which is
+  # why the API cannot read container state and the panel does not claim to.
+  #
+  # The socket is mounted read-only, which restricts nothing on its own; the
+  # ACLs above are what limit this. Losing this service costs the restart
+  # buttons and nothing else.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 0
+      POST: 1
+      ALLOW_RESTARTS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   api:
     build:
@@ -19,14 +80,25 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-commonwax}:${POSTGRES_PASSWORD:-commonwax}@postgres:5432/${POSTGRES_DB:-commonwax}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-commonwax}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-commonwax}?schema=public
       NAVIDROME_URL: http://navidrome:4533
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME:-admin}
-      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD:-commonwax-navidrome}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD:?set NAVIDROME_PASSWORD in .env}
       MUSIC_DIR: /music
       STAGING_DIR: /staging
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DOCKER_PROXY_URL: http://docker-proxy:2375
+      # Compose names containers `<project>-<service>-1`; this is the same
+      # `${DOCKER_PROJECT}` that names the project above, so the API addresses
+      # the containers Compose actually created.
+      DOCKER_PROJECT: ${DOCKER_PROJECT:-commonwax}
+      # Restart order. `api` is last because restarting it kills the request
+      # that asked for the restart.
+      MANAGED_SERVICES: postgres,navidrome,web,api
+      # Optional. Empty means artist logos and backgrounds are off entirely and
+      # the deployment makes no outbound request for them.
+      FANART_API_KEY: ${FANART_API_KEY:-}
     volumes:
       - music:/music
       - staging:/staging
@@ -35,19 +107,28 @@ services:
         condition: service_healthy
       navidrome:
         condition: service_healthy
+      music-permissions:
+        condition: service_completed_successfully
+      docker-proxy:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-commonwax}
       POSTGRES_USER: ${POSTGRES_USER:-commonwax}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-commonwax}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -56,6 +137,11 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   navidrome:
     image: deluan/navidrome:0.58.0
@@ -66,7 +152,7 @@ services:
       ND_SCANSCHEDULE: "0"
       ND_ENABLESHARING: "false"
       ND_ENABLEUSEREDITING: "false"
-      ND_DEVAUTOCREATEADMINPASSWORD: ${NAVIDROME_PASSWORD:-commonwax-navidrome}
+      ND_DEVAUTOCREATEADMINPASSWORD: ${NAVIDROME_PASSWORD:?set NAVIDROME_PASSWORD in .env}
     volumes:
       - navidrome:/data
       - music:/music:ro
@@ -76,6 +162,11 @@ services:
       timeout: 3s
       retries: 30
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   postgres:

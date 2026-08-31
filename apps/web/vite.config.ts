@@ -5,6 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { "/api": "http://localhost:3000" }
+    proxy: {
+      "/api": {
+        target: process.env.COMMONWAX_API_PROXY ?? "http://localhost:3000",
+        changeOrigin: true
+      }
+    }
   }
 });

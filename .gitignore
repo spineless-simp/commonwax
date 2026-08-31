@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.dev
+.env.dev.local
+*.log
+coverage/
+data/
+music/
+staging/
+apps/api/uploads/
+.DS_Store
+
+# Claude Code / AI-agent tooling (config, skills, generated artifacts)
+.claude/
+.impeccable/
+.agents/
+.codex/
+CLAUDE.md
+AUDIT.md
+
