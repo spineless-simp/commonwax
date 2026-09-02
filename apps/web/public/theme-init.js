@@ -10,7 +10,7 @@
  * it directly.
  */
 (function () {
-  var chromeByTheme = { dark: "#080a09", dim: "#262922", light: "#ececE6", "dark-hc": "#000000", "light-hc": "#ffffff" };
+  var chromeByTheme = { dark: "#080a09", dim: "#262922", light: "#ececE6", "dark-hc": "#000000", "light-hc": "#ffffff", win95: "#d4d0c8", "xp-mce": "#245edb" };
   try {
     var theme = localStorage.getItem("cw:theme") || "dark";
     if (theme !== "dark") document.documentElement.setAttribute("data-theme", theme);

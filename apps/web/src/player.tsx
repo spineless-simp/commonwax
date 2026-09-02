@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion, useAnimationFrame, useMotionValue } from "motion/react";
 import { api } from "./api";
 import { ArtistLettering, useArtistLogo } from "./artistLogos";
@@ -340,11 +340,31 @@ export function PlayerBar() {
   const queueButton = useRef<HTMLButtonElement>(null);
   const queuePanel = useRef<HTMLElement>(null);
   const artistLogo = useArtistLogo(player.current?.artist.name ?? "");
+  const titleRef = useRef<HTMLElement>(null);
+  const [titleOverflow, setTitleOverflow] = useState(0);
 
   useEffect(() => {
     setElapsed(0);
     progress.set(0);
   }, [player.current?.id, progress]);
+
+  // How far the title overflows its column, in pixels — 0 once it fits.
+  // Only the Windows XP theme's much larger, un-ellipsized title reads this
+  // (see the .marquee class below), but it costs nothing to measure always.
+  // Measured against the parent column's width rather than the title's own:
+  // the column is a flex-start (not stretched) flex child, so the title sits
+  // at its natural content width and clips against its *ancestor* — its own
+  // scrollWidth and clientWidth are always equal.
+  useEffect(() => {
+    const element = titleRef.current;
+    const container = element?.parentElement;
+    if (!element || !container) { setTitleOverflow(0); return; }
+    const measure = () => setTitleOverflow(Math.max(0, element.scrollWidth - container.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [player.current?.title]);
 
   useEffect(() => {
     if (!queueOpen) return;
@@ -431,11 +451,19 @@ export function PlayerBar() {
               : <span className="mini-art idle-art" />}
             <span>
               {player.current
-                ? artistLogo
+                // A fanart.tv wordmark doesn't fit the Windows XP theme's
+                // Start-button treatment of this corner — a lowercase
+                // Franklin Gothic wordmark of its own — so that theme always
+                // reads the plain artist name here instead.
+                ? artistLogo && document.documentElement.getAttribute("data-theme") !== "xp-mce"
                   ? <small><ArtistLettering name={player.current.artist.name} /></small>
                   : <small>{player.current.artist.name}</small>
                 : <small>Nothing playing</small>}
-              {player.current && <strong>{player.current.title}</strong>}
+              {player.current && <strong
+                ref={titleRef}
+                className={titleOverflow > 0 ? "marquee" : ""}
+                style={titleOverflow > 0 ? { "--marquee-distance": `${titleOverflow}px` } as CSSProperties : undefined}
+              >{player.current.title}</strong>}
             </span>
           </div>
           <div className="player-controls">

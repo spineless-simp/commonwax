@@ -6,6 +6,7 @@ import { Icon, type IconName } from "./icons";
 import { PlayerBar, formatTime, usePlayer } from "./player";
 import { Permission, can } from "./session";
 import { sortTracks, type TrackSort, type TrackSortKey } from "./trackSorting";
+import { CHROME_BY_THEME, THEMES, applyTheme, currentTheme, type Theme } from "./theme";
 import { useApiResource, useApiResources, useDebounced } from "./useApi";
 import type { Activity, AdminCapabilities, Album, Artist, InvitationPreview, LibraryOverview, Member, MusicBrainzReleaseGroup, MusicBrainzSearchResult, MusicRequest, Person, Profile, RestartResult, SessionUser, SkippedFile, Track } from "./types";
 import { MUSICBRAINZ_FIELD_GROUPS, MUSICBRAINZ_SEARCH_FIELDS, rangeParams, type MusicBrainzSearchField } from "@commonwax/shared";
@@ -1418,24 +1419,6 @@ const serviceDescriptions: Record<string, string> = {
   navidrome: "The music catalog, artwork, scanning, and streaming."
 };
 
-type Theme = "dark" | "dim" | "light" | "dark-hc" | "light-hc";
-const THEMES: { value: Theme; label: string; hint: string }[] = [
-  { value: "dark", label: "Dark", hint: "The default listening surface" },
-  { value: "dim", label: "Dim", hint: "A muted middle ground — dimmer than Light" },
-  { value: "light", label: "Light", hint: "A bright surface with the same layout" },
-  { value: "dark-hc", label: "Dark, high contrast", hint: "Pure black with sharper edges and text" },
-  { value: "light-hc", label: "Light, high contrast", hint: "Pure white with sharper edges and text" },
-];
-
-const CHROME_BY_THEME: Record<Theme, string> = { dark: "#080a09", dim: "#262922", light: "#ececE6", "dark-hc": "#000000", "light-hc": "#ffffff" };
-
-function applyTheme(theme: Theme) {
-  if (theme === "dark") document.documentElement.removeAttribute("data-theme");
-  else document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("cw:theme", theme);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", CHROME_BY_THEME[theme]);
-}
-
 /** Whether artist wordmarks (white lettering on transparency) invert to dark
  * lettering in the light themes. On by default — see the styles.css comment
  * above the `--logo-invert-filter` custom property for why. */
@@ -1460,7 +1443,7 @@ function SettingsPage({ user, onUser, notify, onReset }: { user: SessionUser; on
   const details = useApiResource<{ profile: Profile }>(`/api/users/${user.id}`, { fallbackError: "Could not load your profile." });
   const profile = details.data?.profile ?? null;
 
-  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem("cw:theme") as Theme) || "dark");
+  const [theme, setThemeState] = useState<Theme>(currentTheme);
   function setTheme(value: Theme) { setThemeState(value); applyTheme(value); }
 
   const [logoInvert, setLogoInvertState] = useState(() => localStorage.getItem("cw:logo-invert") !== "false");

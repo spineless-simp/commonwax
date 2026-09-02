@@ -173,6 +173,264 @@
 }
 
 /*
+ * Windows 95/98: a gray, beveled desktop chrome, not a color variant of the
+ * rest of this list. Beyond the palette tokens every other theme confines
+ * itself to, this one also overrides the radius and shadow tokens — square
+ * corners everywhere a --radius* var is used, and a beveled inset shadow
+ * everywhere a --shadow-low/--shadow-high var is used, so cards, popovers,
+ * and the player bar pick up a raised-panel look for free — plus a period
+ * font stack and a handful of structural rules below (beveled buttons,
+ * sunken input fields, square scrollbars) for the surfaces a token swap
+ * can't reach.
+ */
+[data-theme="win95"] {
+  color-scheme: light;
+  font-family: Tahoma, "Segoe UI", "MS Sans Serif", Arial, sans-serif;
+  --ink: #000000;
+  --ink-soft: #202020;
+  --ink-inverse: #ffffff;
+  --chrome: #d4d0c8;
+  --chrome-raised: #dfdbd2;
+  --canvas: #d4d0c8;
+  --surface: #ffffff;
+  --surface-deep: #ece9d8;
+  --surface-bright: #0a246a;
+  --muted: #404040;
+  --muted-light: #202020;
+  --line: #a9a59c;
+  --line-dark: #c0bcb2;
+  --line-strong: #808080;
+  --accent: #0a246a;
+  --accent-soft: #c0d7f0;
+  --danger: #aa0000;
+  --danger-soft: #ffd6d6;
+  --shadow-low: inset -1px -1px 0 #808080, inset 1px 1px 0 #fff, inset -2px -2px 0 #404040, inset 2px 2px 0 #dfdbd2;
+  --shadow-high: inset -1px -1px 0 #808080, inset 1px 1px 0 #fff, inset -2px -2px 0 #404040, inset 2px 2px 0 #dfdbd2, 2px 2px 6px rgba(0, 0, 0, .35);
+  --radius-badge: 2px;
+  --radius-compact: 2px;
+  --radius-small: 2px;
+  --radius-control: 2px;
+  --radius-artwork: 0px;
+  --radius: 2px;
+  --radius-large: 2px;
+}
+[data-theme="win95"] .topbar { backdrop-filter: none; }
+[data-theme="win95"] .primary,
+[data-theme="win95"] .secondary {
+  border-width: 2px;
+  border-style: solid;
+  border-color: #ffffff #404040 #404040 #ffffff;
+  box-shadow: inset 1px 1px 0 #dfdbd2, inset -1px -1px 0 #808080;
+}
+[data-theme="win95"] .primary:active,
+[data-theme="win95"] .secondary:active {
+  border-color: #404040 #ffffff #ffffff #404040;
+  box-shadow: inset -1px -1px 0 #dfdbd2, inset 1px 1px 0 #808080;
+}
+[data-theme="win95"] .field input,
+[data-theme="win95"] .copy-row input,
+[data-theme="win95"] .search-box {
+  border-width: 2px;
+  border-style: solid;
+  border-color: #404040 #ffffff #ffffff #404040;
+  border-radius: 0;
+  background: #ffffff;
+}
+[data-theme="win95"] ::-webkit-scrollbar-thumb { border-radius: 0; }
+[data-theme="win95"] ::-webkit-scrollbar-track { background: var(--surface-deep); }
+/* The selected row in a classic Windows listbox is solid navy with white
+   text, not a tint — the one contrast a light, all-gray theme still needs. */
+[data-theme="win95"] .sidebar nav button.active,
+[data-theme="win95"] .library-context[aria-current="page"],
+[data-theme="win95"] .profile-card-open[aria-current="page"],
+[data-theme="win95"] .view-toggle button.active,
+[data-theme="win95"] .search-option.active {
+  color: #ffffff;
+  background: var(--accent);
+}
+[data-theme="win95"] .library-context[aria-current="page"] small,
+[data-theme="win95"] .profile-card-open[aria-current="page"] small { color: #c0d7f0; }
+
+/*
+ * Windows XP (Media Center Edition): the "Luna" blue skin, not the gray
+ * Windows 95 above it — rounder radii, gradient glass instead of hard
+ * bevels, and the Bliss hillside behind the sign-in and welcome screens
+ * (the two places a member sees an empty backdrop rather than a full
+ * window of content, the closest this app has to a bare desktop). Same
+ * trick as Windows 95: the radius and shadow tokens are overridden along
+ * with the palette, so corners round off and cards pick up a soft glassy
+ * elevation everywhere those vars are already used, for free. Gradients
+ * aren't tokens, so buttons, the taskbar-style player bar, and the active
+ * nav pill get their own scoped rules below — plus one indulgence the
+ * brief asked for: the play button as a green Start-orb.
+ */
+[data-theme="xp-mce"] {
+  color-scheme: light;
+  font-family: Tahoma, "Segoe UI", Verdana, Arial, sans-serif;
+  --ink: #0b1f38;
+  --ink-soft: #1a3a5c;
+  --ink-inverse: #ffffff;
+  --chrome: #eaf1fd;
+  --chrome-raised: #dceafd;
+  --canvas: #eaf1fd;
+  --surface: #ffffff;
+  --surface-deep: #dceafd;
+  --surface-bright: #2f71e0;
+  --muted: #4a5f7a;
+  --muted-light: #2c4870;
+  --line: #b6cbee;
+  --line-dark: #d7e6fb;
+  --line-strong: #6f9ce0;
+  --accent: #1958d6;
+  --accent-soft: #cfe0fb;
+  --danger: #cc0000;
+  --danger-soft: #ffd9d9;
+  --shadow-low: inset 0 1px 0 rgba(255, 255, 255, .65), 0 6px 18px rgba(10, 40, 90, .28);
+  --shadow-high: inset 0 1px 0 rgba(255, 255, 255, .65), 0 16px 44px rgba(10, 40, 90, .4);
+  --radius-badge: 4px;
+  --radius-compact: 4px;
+  --radius-small: 5px;
+  --radius-control: 6px;
+  --radius-artwork: 4px;
+  --radius: 8px;
+  --radius-large: 10px;
+}
+/* The Bliss hillside: a rolling green foreground under a blue sky with a
+   couple of soft clouds, all gradients — the one photographic-feeling
+   background this theme gets, reserved for the sign-in and welcome
+   screens rather than tiled behind dense list content. */
+[data-theme="xp-mce"] .auth-page,
+[data-theme="xp-mce"] main.arrival {
+  background:
+    radial-gradient(140% 70% at 50% 100%, #8bc34a 0%, #6fa83a 32%, #4f8a2a 46%, transparent 47%),
+    radial-gradient(55% 38% at 18% 16%, rgba(255, 255, 255, .9) 0%, rgba(255, 255, 255, .5) 42%, transparent 72%),
+    radial-gradient(48% 30% at 62% 9%, rgba(255, 255, 255, .85) 0%, rgba(255, 255, 255, .4) 45%, transparent 72%),
+    linear-gradient(180deg, #1e5fce 0%, #4c85e0 28%, #9cc4ef 55%, #dcf0ff 78%, #eaf6ff 100%);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+}
+[data-theme="xp-mce"] .auth-card { border-top: 4px solid #1958d6; }
+/* The sidebar as the Start menu's left rail: chrome/canvas stay a light,
+   icy blue everywhere else in this theme (so a panel like the sign-in
+   card's inputs, filled from --chrome-raised, reads correctly), but the
+   sidebar breaks from that on purpose — hardcoded rather than token-driven,
+   since nothing else in the theme needs to flip this dark. */
+[data-theme="xp-mce"] .sidebar {
+  background: linear-gradient(180deg, #2b6fe0 0%, #1c53c9 55%, #133e9e 100%);
+  color: #eaf1fd;
+}
+[data-theme="xp-mce"] .sidebar-brand,
+[data-theme="xp-mce"] .nav-group-label,
+[data-theme="xp-mce"] .sidebar nav button,
+[data-theme="xp-mce"] .library-context strong,
+[data-theme="xp-mce"] .library-context small,
+[data-theme="xp-mce"] .profile-card strong,
+[data-theme="xp-mce"] .profile-card small,
+[data-theme="xp-mce"] .mobile-library strong,
+[data-theme="xp-mce"] .mobile-library small,
+[data-theme="xp-mce"] .menu-library small {
+  color: #eaf1fd;
+}
+[data-theme="xp-mce"] .nav-group-label { color: #9dc2f5; }
+[data-theme="xp-mce"] .sidebar nav button:hover { background: rgba(255, 255, 255, .16); }
+[data-theme="xp-mce"] .library-context,
+[data-theme="xp-mce"] .profile-card-open { background: rgba(255, 255, 255, .1); }
+[data-theme="xp-mce"] .library-context:hover,
+[data-theme="xp-mce"] .profile-card-open:hover { background: rgba(255, 255, 255, .18); }
+[data-theme="xp-mce"] .profile-card { border-top-color: rgba(255, 255, 255, .3); }
+[data-theme="xp-mce"] .profile-card > button:not(.profile-card-open) { color: #cfe0fb; }
+[data-theme="xp-mce"] .profile-card > button:not(.profile-card-open):hover { color: #ffffff; background: rgba(255, 255, 255, .18); }
+[data-theme="xp-mce"] .topbar { backdrop-filter: none; }
+[data-theme="xp-mce"] .primary,
+[data-theme="xp-mce"] .secondary {
+  border: 1px solid #6f9ce0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+[data-theme="xp-mce"] .primary {
+  border-color: #0d3a91;
+  background: linear-gradient(180deg, #5fa0ff 0%, #1958d6 55%, #1247b3 100%);
+}
+[data-theme="xp-mce"] .primary:hover { background: linear-gradient(180deg, #74adff 0%, #2a68e0 55%, #1247b3 100%); }
+[data-theme="xp-mce"] .secondary { background: linear-gradient(180deg, #ffffff 0%, #dbe8fb 60%, #c2d9f7 100%); }
+[data-theme="xp-mce"] .secondary:hover { background: linear-gradient(180deg, #ffffff 0%, #cfe0fb 60%, #b3d0f5 100%); }
+[data-theme="xp-mce"] ::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #bcd6f7, #7fa8e0); }
+[data-theme="xp-mce"] ::-webkit-scrollbar-track { background: var(--surface-deep); }
+/* Selected rows read as the Luna selection gradient rather than a flat tint. */
+[data-theme="xp-mce"] .sidebar nav button.active,
+[data-theme="xp-mce"] .library-context[aria-current="page"],
+[data-theme="xp-mce"] .profile-card-open[aria-current="page"],
+[data-theme="xp-mce"] .view-toggle button.active,
+[data-theme="xp-mce"] .search-option.active {
+  color: #ffffff;
+  background: linear-gradient(180deg, #5fa0ff, #1958d6);
+}
+[data-theme="xp-mce"] .library-context[aria-current="page"] small,
+[data-theme="xp-mce"] .profile-card-open[aria-current="page"] small { color: #cfe0fb; }
+/* The taskbar this player bar has always visually stood in for, made
+   literal: a Luna gradient bar with the play control as a green Start-orb. */
+[data-theme="xp-mce"] .player-bar {
+  background: linear-gradient(180deg, #2b6fe0 0%, #1c53c9 55%, #133e9e 100%);
+  border-top: 1px solid #0d3a91;
+  color: #ffffff;
+}
+[data-theme="xp-mce"] .player-bar .player-time,
+[data-theme="xp-mce"] .player-track small { color: #cfe0fb; }
+[data-theme="xp-mce"] .player-controls button { color: #eaf1fd; }
+[data-theme="xp-mce"] .player-controls button:hover { background: rgba(255, 255, 255, .18); }
+[data-theme="xp-mce"] .player-controls .play-round {
+  background: radial-gradient(circle at 35% 30%, #a4e88a, #4fae3a 55%, #2c7d1f 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), 0 2px 6px rgba(0, 0, 0, .35);
+  color: #ffffff;
+}
+[data-theme="xp-mce"] .player-controls .play-round:hover {
+  background: radial-gradient(circle at 35% 30%, #b8f09e, #5cc246 55%, #2c7d1f 100%);
+}
+/* The now-playing corner as the Start button itself: green glass, a lowercase
+   Franklin Gothic wordmark with a drop shadow, capped in a pill rather than
+   squared off against the rest of the bar. */
+[data-theme="xp-mce"] .player-track {
+  padding-right: 28px;
+  border-right: 0;
+  /* A fixed radius, not height/2 — at this element's ~100px height a true
+     pill reads as an oversized blob. The real Start button's cap is a small,
+     tight curve relative to its own (much shorter) taskbar-height box. */
+  border-radius: 0 26px 26px 0;
+  background: linear-gradient(180deg, #8bdb6e 0%, #4fae3a 18%, #2f8a22 55%, #1f6e18 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .55), inset 0 -3px 6px rgba(0, 0, 0, .35), 2px 0 8px rgba(0, 0, 0, .35);
+  overflow: hidden;
+}
+[data-theme="xp-mce"] .player-track::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 60% at 50% -10%, rgba(255, 255, 255, .55), transparent 60%);
+}
+[data-theme="xp-mce"] .player-track strong,
+[data-theme="xp-mce"] .player-track small {
+  font-family: "Franklin Gothic Medium", "Arial Narrow", Arial, sans-serif;
+  text-transform: lowercase;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, .6);
+}
+[data-theme="xp-mce"] .player-track strong { color: #ffffff; font-weight: 700; font-style: italic; font-size: 1.5rem; }
+[data-theme="xp-mce"] .player-track small { color: rgba(255, 255, 255, .88); font-size: 1.05rem; }
+/* Measured in PlayerBar (player.tsx) rather than assumed: only a title that
+   actually overflows its column gets this class, with the exact overflow
+   distance handed in as --marquee-distance, so a short title just sits still. */
+[data-theme="xp-mce"] .player-track strong.marquee {
+  display: inline-block;
+  overflow: visible;
+  text-overflow: clip;
+  animation: player-track-marquee 6s linear infinite;
+  animation-delay: 1s;
+}
+@keyframes player-track-marquee {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(calc(-1 * var(--marquee-distance, 0px) - 10px)); }
+}
+
+/*
  * fanart.tv artist wordmarks are white lettering on transparency (see
  * artistLogos.tsx and the .artist-logo img comment below) — legible on the
  * dark surfaces those were designed against, invisible on a light one. Two
@@ -198,7 +456,9 @@
   --logo-border-filter: drop-shadow(0 0 0 transparent);
 }
 :root[data-theme="light"]:not([data-logo-invert="off"]),
-:root[data-theme="light-hc"]:not([data-logo-invert="off"]) {
+:root[data-theme="light-hc"]:not([data-logo-invert="off"]),
+:root[data-theme="win95"]:not([data-logo-invert="off"]),
+:root[data-theme="xp-mce"]:not([data-logo-invert="off"]) {
   --logo-invert-filter: invert(1);
 }
 :root[data-logo-border="on"] {
@@ -866,6 +1126,13 @@ main.arrival { display: flex; min-height: 100vh; padding: clamp(32px, 5vw, 72px)
 .player-time span { color: var(--line-strong); }
 .player-error { position: absolute; bottom: calc(100% + 9px); left: 50%; width: max-content; max-width: min(440px, calc(100vw - 28px)); margin: 0; padding: 10px 13px; border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: var(--radius-small); color: var(--danger-ink); background: var(--danger-soft); box-shadow: var(--shadow-low); font-size: var(--text-meta); line-height: 1.35; text-align: center; transform: translateX(-50%); }
 .player-trailing { display: flex; min-width: 0; align-items: center; gap: 20px; padding-left: 24px; position: relative; z-index: 1; }
+/* Shuffle and the queue toggle are plain <button>s (the volume button beside
+   them is the only one wrapped in .icon-button), so without this they keep
+   the browser's native button chrome — a white box regardless of theme. */
+.player-trailing > button { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--muted-light); background: transparent; cursor: pointer; }
+.player-trailing > button:hover { color: var(--ink); background: var(--chrome-hover); }
+.player-trailing > button.active { color: var(--ink); background: var(--surface-deep); }
+.player-trailing > button svg { width: 16px; height: 16px; }
 .volume-control { display: flex; align-items: center; gap: 6px; }
 .volume-control .icon-button { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--muted-light); background: transparent; cursor: pointer; flex-shrink: 0; }
 .volume-control .icon-button:hover { color: var(--ink); background: var(--chrome-hover); }
