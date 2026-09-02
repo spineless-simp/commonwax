@@ -24,7 +24,7 @@ import {
 } from "./auth.js";
 import { activityView, payloadId } from "./activity.js";
 import { ServiceControlError, eraseAccount, managedServices, resetEverything, restartServices, serviceControlAvailable } from "./admin.js";
-import { artworkBytes, artworkForNames, enqueue } from "./artistArt.js";
+import { artworkBytes, artworkForNames, enqueue, enqueueMissing, listMissingArtists, setManualLogo } from "./artistArt.js";
 import {
   bindingReference,
   captureLiveBindingSnapshots,
@@ -118,6 +118,9 @@ const upload = multer({
 // they go straight into a Postgres column, and nothing about them belongs in the
 // music staging directory.
 const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: AVATAR_MAX_BYTES, files: 1 } });
+
+/** Artist logos are stored the same way as avatars: small images in memory. */
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024, files: 1 } });
 
 /**
  * multer caps each file and the file count, but not the batch as a whole.
@@ -573,16 +576,34 @@ export function createApp() {
   });
 
   /**
+   * Returns the artist names that have no logo cached yet. The admin panel
+   * fetches this before showing the "refresh missing" confirmation modal.
+   */
+  app.get("/api/admin/artists-missing-logos", requirePermission(Permission.MANAGE_LIBRARY), async (_request, response) => {
+    const albums = await listAllAlbums();
+    const names = [...new Set(albums.map((album) => album.artist).filter((name): name is string => Boolean(name)))];
+    const missing = await listMissingArtists(names);
+    response.json({ missing, total: names.length });
+  });
+
+  /**
    * Re-fetches every artist's logo and background from fanart.tv. Used once
    * after adding image trimming to backfill existing rows. The queue processes
    * names at MusicBrainz's one-request-per-second pace, so a large library
    * takes minutes — the response returns immediately with the count.
+   *
+   * Pass `?missing=true` to only queue artists with no logo cached yet.
    */
-  app.post("/api/admin/refresh-artwork", requirePermission(Permission.MANAGE_LIBRARY), async (_request, response) => {
+  app.post("/api/admin/refresh-artwork", requirePermission(Permission.MANAGE_LIBRARY), async (request, response) => {
     const albums = await listAllAlbums();
     const names = [...new Set(albums.map((album) => album.artist).filter((name): name is string => Boolean(name)))];
-    enqueue(names);
-    response.json({ queued: names.length });
+    if (request.query.missing === "true") {
+      const queued = await enqueueMissing(names);
+      response.json({ queued });
+    } else {
+      enqueue(names);
+      response.json({ queued: names.length });
+    }
   });
 
   app.get("/api/contributors", requirePermission(Permission.LISTEN), async (request, response) => {
@@ -651,6 +672,16 @@ export function createApp() {
     response.setHeader("Content-Type", image.type);
     response.setHeader("Cache-Control", "private, max-age=31536000, immutable");
     response.end(image.bytes);
+  });
+
+  app.put("/api/artists/:artistId/logo", requirePermission(Permission.MANAGE_LIBRARY), logoUpload.single("logo"), async (request, response) => {
+    const file = request.file;
+    if (!file) return void response.status(400).json({ error: "Choose an image file." });
+    const artist = await getCatalogArtist(request.auth!.library.id, request.auth!.user.id, String(request.params.artistId));
+    if (!artist) return void response.status(404).json({ error: "Artist not found." });
+    const logoUrl = await setManualLogo(artist.name, file.buffer);
+    if (!logoUrl) return void response.status(400).json({ error: "That file is not a PNG, JPEG, GIF, or WebP image." });
+    response.json({ logoUrl });
   });
 
   app.get("/api/artists/:artistId", requirePermission(Permission.LISTEN), async (request, response) => {

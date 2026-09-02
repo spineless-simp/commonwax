@@ -545,7 +545,7 @@ function Shell({ user, onLogout, onUser, onReset }: { user: SessionUser; onLogou
   };
   const currentView = uploadRequest !== undefined ? <UploadPage request={uploadRequest} onCancel={goBack} onDone={uploadDone} />
     : albumId ? <AlbumPage albumId={albumId} user={user} onChanged={albumChanged} />
-    : artistId ? <ArtistPage artistId={artistId} onOpenAlbum={openAlbum} />
+    : artistId ? <ArtistPage artistId={artistId} user={user} onOpenAlbum={openAlbum} />
     : profileId ? <ProfilePage profileId={profileId} user={user} refresh={refresh} onUser={onUser} onOpenAlbum={openAlbum} notify={notify} />
     : view === "home" ? <Home user={user} refresh={refresh} onNavigate={navigate} onUpload={() => openUpload(null)} onOpenAlbum={openAlbum} />
     : view === "albums" ? <AlbumsPage refresh={refresh} onOpenAlbum={openAlbum} />
@@ -688,7 +688,7 @@ function AlbumsPage({ hidden = false, refresh, onOpenAlbum }: { hidden?: boolean
 function ArtistMark({ artist, className = "", alt = "" }: { artist: Artist; className?: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
   const logo = artist.logoUrl && !failed ? artist.logoUrl : null;
-  return <span className={`artist-mark ${className} ${logo ? "has-logo" : ""}`}>
+  return <span className={`artist-mark ${className} ${logo ? "has-logo" : ""}`} title={artist.name}>
     {logo
       ? <img src={logo} alt={alt} loading="lazy" onError={() => setFailed(true)} />
       : <span className="artist-avatar">{initials(artist.name)}</span>}
@@ -1242,6 +1242,9 @@ function AdminContent({ user, notify, onReset }: { user: SessionUser; notify: (m
   const [healthTick, setHealthTick] = useState(0);
   const [refreshingArtwork, setRefreshingArtwork] = useState(false);
   const [artworkQueued, setArtworkQueued] = useState<number | null>(null);
+  const [missingArtists, setMissingArtists] = useState<string[] | null>(null);
+  const [loadingMissing, setLoadingMissing] = useState(false);
+  const [refreshingMissing, setRefreshingMissing] = useState(false);
   const capabilities = useApiResource<AdminCapabilities>("/api/admin");
   const health = useApiResource<{ status: string; database: boolean; navidrome: boolean }>("/api/health", { reloadKey: healthTick });
   const canReset = capabilities.data?.canReset ?? false;
@@ -1294,6 +1297,31 @@ function AdminContent({ user, notify, onReset }: { user: SessionUser; notify: (m
     }
   }
 
+  async function openMissingArtists() {
+    setError(""); setLoadingMissing(true);
+    try {
+      const result = await api<{ missing: string[]; total: number }>("/api/admin/artists-missing-logos");
+      setMissingArtists(result.missing);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "Failed to load missing artists.");
+    } finally {
+      setLoadingMissing(false);
+    }
+  }
+
+  async function refreshMissingArtwork() {
+    setError(""); setRefreshingMissing(true);
+    try {
+      const result = await post<{ queued: number }>("/api/admin/refresh-artwork?missing=true", {});
+      setMissingArtists(null);
+      notify(`${result.queued} artist${result.queued === 1 ? "" : "s"} queued for refresh.`);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "Refresh failed.");
+    } finally {
+      setRefreshingMissing(false);
+    }
+  }
+
   const busy = Boolean(restarting) || resetting;
   return <>
     <FormError message={error || capabilities.error} />
@@ -1324,10 +1352,13 @@ function AdminContent({ user, notify, onReset }: { user: SessionUser; notify: (m
     </dl>
 
     <SectionHead title="Artwork" />
-    <p className="admin-note">Re-fetches every artist logo and background from fanart.tv and trims transparent edges. Processes at one artist per second, so a large library takes several minutes.</p>
+    <p className="admin-note">Re-fetches artist logos and backgrounds from fanart.tv and trims transparent edges. Processes at one artist per second, so a large library takes several minutes.</p>
     <div className="admin-actions">
       <button className="secondary" disabled={busy || refreshingArtwork} onClick={() => void refreshArtwork()}>
         <Icon name="restart" />{refreshingArtwork ? "Queuing…" : artworkQueued !== null ? `Queued ${artworkQueued} artist${artworkQueued === 1 ? "" : "s"}` : "Refresh all artwork"}
+      </button>
+      <button className="secondary" disabled={busy || refreshingArtwork || loadingMissing} onClick={() => void openMissingArtists()}>
+        <Icon name="restart" />{loadingMissing ? "Loading…" : "Refresh missing only"}
       </button>
     </div>
 
@@ -1356,6 +1387,18 @@ function AdminContent({ user, notify, onReset }: { user: SessionUser; notify: (m
         <FormError message={error} />
         <div className="modal-actions"><button className="secondary" disabled={resetting} onClick={() => setConfirmingReset("none")}>Cancel</button></div>
       </Modal>}
+      {missingArtists !== null && <Modal title="Artists missing logos" onClose={() => setMissingArtists(null)}
+        description={`${missingArtists.length} artist${missingArtists.length === 1 ? "" : "s"} have no logo cached. They will be queued for a background lookup at one per second.`}>
+        {missingArtists.length === 0
+          ? <p className="quiet-state">Every artist already has a logo. Nothing to refresh.</p>
+          : <ul className="missing-artist-list">{missingArtists.map((name) => <li key={name}>{name}</li>)}</ul>}
+        <div className="modal-actions">
+          <button className="secondary" onClick={() => setMissingArtists(null)}>Cancel</button>
+          {missingArtists.length > 0 && <button className="secondary" disabled={refreshingMissing} onClick={() => void refreshMissingArtwork()}>
+            {refreshingMissing ? "Queuing…" : `Refresh ${missingArtists.length} artist${missingArtists.length === 1 ? "" : "s"}`}
+          </button>}
+        </div>
+      </Modal>}
     </AnimatePresence>
   </>;
 }
@@ -1375,12 +1418,55 @@ const serviceDescriptions: Record<string, string> = {
   navidrome: "The music catalog, artwork, scanning, and streaming."
 };
 
+type Theme = "dark" | "dim" | "light" | "dark-hc" | "light-hc";
+const THEMES: { value: Theme; label: string; hint: string }[] = [
+  { value: "dark", label: "Dark", hint: "The default listening surface" },
+  { value: "dim", label: "Dim", hint: "A muted middle ground — dimmer than Light" },
+  { value: "light", label: "Light", hint: "A bright surface with the same layout" },
+  { value: "dark-hc", label: "Dark, high contrast", hint: "Pure black with sharper edges and text" },
+  { value: "light-hc", label: "Light, high contrast", hint: "Pure white with sharper edges and text" },
+];
+
+const CHROME_BY_THEME: Record<Theme, string> = { dark: "#080a09", dim: "#262922", light: "#ececE6", "dark-hc": "#000000", "light-hc": "#ffffff" };
+
+function applyTheme(theme: Theme) {
+  if (theme === "dark") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("cw:theme", theme);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", CHROME_BY_THEME[theme]);
+}
+
+/** Whether artist wordmarks (white lettering on transparency) invert to dark
+ * lettering in the light themes. On by default — see the styles.css comment
+ * above the `--logo-invert-filter` custom property for why. */
+function applyLogoInvert(enabled: boolean) {
+  if (enabled) document.documentElement.removeAttribute("data-logo-invert");
+  else document.documentElement.setAttribute("data-logo-invert", "off");
+  localStorage.setItem("cw:logo-invert", String(enabled));
+}
+
+/** Whether artist wordmarks carry a black outline (see `--logo-border-filter`
+ * in styles.css). Off by default — an opt-in look, not a legibility fix. */
+function applyLogoBorder(enabled: boolean) {
+  if (enabled) document.documentElement.setAttribute("data-logo-border", "on");
+  else document.documentElement.removeAttribute("data-logo-border");
+  localStorage.setItem("cw:logo-border", String(enabled));
+}
+
 function SettingsPage({ user, onUser, notify, onReset }: { user: SessionUser; onUser: (user: SessionUser) => void; notify: (message: string) => void; onReset: () => void }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const picker = useRef<HTMLInputElement>(null);
   const details = useApiResource<{ profile: Profile }>(`/api/users/${user.id}`, { fallbackError: "Could not load your profile." });
   const profile = details.data?.profile ?? null;
+
+  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem("cw:theme") as Theme) || "dark");
+  function setTheme(value: Theme) { setThemeState(value); applyTheme(value); }
+
+  const [logoInvert, setLogoInvertState] = useState(() => localStorage.getItem("cw:logo-invert") !== "false");
+  function setLogoInvert(value: boolean) { setLogoInvertState(value); applyLogoInvert(value); }
+  const [logoBorder, setLogoBorderState] = useState(() => localStorage.getItem("cw:logo-border") === "true");
+  function setLogoBorder(value: boolean) { setLogoBorderState(value); applyLogoBorder(value); }
 
   // Playback settings from localStorage
   const [volumeMemory, setVolumeMemory] = useState(() => localStorage.getItem("cw:volume-memory") !== "false");
@@ -1469,6 +1555,38 @@ function SettingsPage({ user, onUser, notify, onReset }: { user: SessionUser; on
         </div>
       </div>
     </> : null}
+
+    <SectionHead title="Appearance" />
+    <fieldset className="settings-section settings-field">
+      <legend>Theme</legend>
+      <div className="settings-radio-group settings-radio-group-theme">
+        {THEMES.map((option) => <label key={option.value} className="settings-radio">
+          <input type="radio" name="theme" value={option.value} checked={theme === option.value} onChange={() => setTheme(option.value)} />
+          <span>
+            <strong>{option.label}</strong>
+            <small>{option.hint}</small>
+          </span>
+        </label>)}
+      </div>
+    </fieldset>
+    <div className="settings-section">
+      <label className="settings-toggle">
+        <input type="checkbox" checked={logoInvert} onChange={(event) => setLogoInvert(event.target.checked)} />
+        <span className="toggle-track"><span className="toggle-thumb" /></span>
+        <span className="toggle-label">
+          <strong>Invert artist logos in light themes</strong>
+          <small>Artist wordmarks are white lettering, so light themes darken them to stay legible</small>
+        </span>
+      </label>
+      <label className="settings-toggle">
+        <input type="checkbox" checked={logoBorder} onChange={(event) => setLogoBorder(event.target.checked)} />
+        <span className="toggle-track"><span className="toggle-thumb" /></span>
+        <span className="toggle-label">
+          <strong>Add a border around artist logos</strong>
+          <small>Outlines each wordmark in black so it stands out against any surface</small>
+        </span>
+      </label>
+    </div>
 
     <SectionHead title="Playback" />
     <div className="settings-section">
@@ -1792,15 +1910,33 @@ function AlbumPage({ albumId, user, onChanged }: { albumId: string; user: Sessio
  * the name as its alt text — rather than a picture sitting above a redundant
  * repetition of the name at the same size.
  */
-function ArtistPage({ artistId, onOpenAlbum }: { artistId: string; onOpenAlbum: (albumId: string) => void }) {
+function ArtistPage({ artistId, user, onOpenAlbum }: { artistId: string; user: SessionUser; onOpenAlbum: (albumId: string) => void }) {
   const { addedBy } = useContributorFilter();
   const [backdropLoaded, setBackdropLoaded] = useState(false);
-  const { data, error } = useApiResource<{ artist: Artist }>(withQuery(`/api/artists/${artistId}`, { addedBy: addedBy?.id }));
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const { data, error, reload } = useApiResource<{ artist: Artist }>(withQuery(`/api/artists/${artistId}`, { addedBy: addedBy?.id }));
   const artist = data?.artist ?? null;
+  const fileInput = useRef<HTMLInputElement>(null);
   if (!artist) return <><PageLoading /><FormError message={error} /></>;
   const albums = artist.albums ?? [];
   const trackCount = albums.reduce((total, album) => total + (album.songCount ?? 0), 0);
   const meta = [artistMeta(artist), trackCount ? `${trackCount} ${trackCount === 1 ? "track" : "tracks"}` : null].filter(Boolean).join(" · ");
+
+  async function uploadLogo(file: File) {
+    setLogoError(""); setLogoUploading(true);
+    try {
+      const form = new FormData();
+      form.append("logo", file);
+      await api<{ logoUrl: string }>(`/api/artists/${artistId}/logo`, { method: "PUT", body: form });
+      reload();
+    } catch (issue) {
+      setLogoError(issue instanceof Error ? issue.message : "Upload failed.");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   return <section className="artist-page">
     {artist.backgroundUrl && <div className={`artist-backdrop ${backdropLoaded ? "loaded" : ""}`}>
       <img className="artist-backdrop-sharp" src={artist.backgroundUrl} alt="" onLoad={() => setBackdropLoaded(true)} />
@@ -1813,12 +1949,22 @@ function ArtistPage({ artistId, onOpenAlbum }: { artistId: string; onOpenAlbum: 
           : <h1 className="artist-name">{artist.name}</h1>}
         <p className="artist-hero-meta">{meta}</p>
       </div>
+      {can(user, Permission.MANAGE_LIBRARY) && <>
+        <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void uploadLogo(file);
+          event.target.value = "";
+        }} />
+        <button className="secondary artist-logo-upload" disabled={logoUploading} onClick={() => fileInput.current?.click()}>
+          {logoUploading ? "Uploading…" : artist.logoUrl ? "Replace logo" : "Upload logo"}
+        </button>
+      </>}
     </header>
     <AddedByFilter />
     {albums.length
       ? <AlbumGrid albums={albums} onOpen={onOpenAlbum} variant="artist" />
       : <EmptyState {...emptyBrowse(addedBy, "No albums", "Nothing by this artist is in the collection.")} />}
-    <FormError message={error} />
+    <FormError message={error || logoError} />
   </section>;
 }
 

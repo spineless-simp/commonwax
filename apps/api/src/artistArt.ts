@@ -155,18 +155,28 @@ export function pickMusicBrainzMatch(candidates: MusicBrainzCandidate[], name: s
   return exact.length === 1 ? exact[0]!.id! : null;
 }
 
-async function resolveMusicBrainzId(name: string): Promise<string | null> {
+async function resolveMusicBrainzId(name: string, retries = 3): Promise<string | null> {
   const url = new URL("https://musicbrainz.org/ws/2/artist");
   url.searchParams.set("query", `artist:"${name.replaceAll('"', " ")}"`);
   url.searchParams.set("fmt", "json");
   url.searchParams.set("limit", "5");
+  console.log(`[artistArt] MusicBrainz request: GET ${url.toString()}`);
   const response = await fetch(url, {
     headers: { "user-agent": USER_AGENT, accept: "application/json" },
     signal: AbortSignal.timeout(15_000)
   });
+  console.log(`[artistArt] MusicBrainz response: ${response.status} ${response.statusText}`);
+  if (response.status === 503 && retries > 0) {
+    const retryAfter = Number(response.headers.get("retry-after")) || 2;
+    console.log(`[artistArt] MusicBrainz 503, retrying in ${retryAfter}s (${retries} retries left)`);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(retryAfter, 1), 5) * 1000));
+    return resolveMusicBrainzId(name, retries - 1);
+  }
   if (!response.ok) throw new Error(`MusicBrainz search returned HTTP ${response.status}`);
   const body = (await response.json()) as { artists?: MusicBrainzCandidate[] };
-  return pickMusicBrainzMatch(body.artists ?? [], name);
+  const candidates = body.artists ?? [];
+  console.log(`[artistArt] MusicBrainz candidates for "${name}": ${candidates.length} results`, candidates.map((a) => ({ name: a.name, score: a.score, id: a.id })));
+  return pickMusicBrainzMatch(candidates, name);
 }
 
 /**
@@ -177,16 +187,18 @@ async function resolveMusicBrainzId(name: string): Promise<string | null> {
 async function fetchFanartArtwork(musicBrainzId: string): Promise<{ logo: string | null; background: string | null }> {
   const url = new URL(`https://webservice.fanart.tv/v3/music/${musicBrainzId}`);
   url.searchParams.set("api_key", config.fanartApiKey);
+  console.log(`[artistArt] fanart.tv request: GET ${url.toString()}`);
   const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  console.log(`[artistArt] fanart.tv response: ${response.status} ${response.statusText}`);
   // fanart.tv answers 404 for an artist it has nothing for, which is an answer,
   // not a failure: the row records a miss and stops asking for a week.
   if (response.status === 404) return { logo: null, background: null };
   if (!response.ok) throw new Error(`fanart.tv returned HTTP ${response.status}`);
   const body = (await response.json()) as Record<string, FanartImage[] | undefined>;
-  return {
-    logo: bestImage(body.hdmusiclogo) ?? bestImage(body.musiclogo),
-    background: bestImage(body.artistbackground)
-  };
+  const logo = bestImage(body.hdmusiclogo) ?? bestImage(body.musiclogo);
+  const background = bestImage(body.artistbackground);
+  console.log(`[artistArt] fanart.tv result: logo=${logo ? "found" : "none"}, background=${background ? "found" : "none"}`);
+  return { logo, background };
 }
 
 /**
@@ -256,6 +268,43 @@ export function enqueue(names: string[]): void {
   if (!draining) draining = drain().finally(() => { draining = null; });
 }
 
+/**
+ * Only enqueues artists that have no logo cached yet. Useful for backfilling
+ * artwork after a fresh import without re-fetching artists that already have one.
+ */
+export async function enqueueMissing(names: string[]): Promise<number> {
+  if (!config.fanartApiKey || !names.length) return 0;
+  const keys = names.map((n) => normalized(n)).filter((k): k is string => Boolean(k));
+  const rows = await db.artistArtwork.findMany({
+    where: { nameKey: { in: keys } },
+    select: { nameKey: true, logoType: true }
+  });
+  const haveLogo = new Set(rows.filter((r) => r.logoType).map((r) => r.nameKey));
+  const missing = names.filter((n) => {
+    const key = normalized(n);
+    return key && !haveLogo.has(key);
+  });
+  enqueue(missing);
+  return missing.length;
+}
+
+/**
+ * Returns the artist names that have no logo cached yet. Used by the admin
+ * panel to show a preview before triggering a missing-only refresh.
+ */
+export async function listMissingArtists(names: string[]): Promise<string[]> {
+  const keys = names.map((n) => normalized(n)).filter((k): k is string => Boolean(k));
+  const rows = await db.artistArtwork.findMany({
+    where: { nameKey: { in: keys } },
+    select: { nameKey: true, logoType: true }
+  });
+  const haveLogo = new Set(rows.filter((r) => r.logoType).map((r) => r.nameKey));
+  return names.filter((n) => {
+    const key = normalized(n);
+    return key && !haveLogo.has(key);
+  });
+}
+
 async function drain(): Promise<void> {
   while (queued.size) {
     const [name] = queued;
@@ -281,4 +330,31 @@ export async function artworkBytes(artworkId: string, kind: "logo" | "background
   const bytes = kind === "logo" ? row.logo : row.background;
   const type = kind === "logo" ? row.logoType : row.backgroundType;
   return bytes && type ? { bytes: Buffer.from(bytes), type } : null;
+}
+
+/**
+ * Stores a manually uploaded image as the artist's logo. The image is sniffed
+ * from the leading bytes (not the Content-Type header) and trimmed if it is a
+ * PNG, exactly like the fanart.tv path. The row is touched so the new logo
+ * appears immediately.
+ */
+export async function setManualLogo(name: string, buffer: Buffer): Promise<string | null> {
+  const nameKey = normalized(name);
+  if (!nameKey) return null;
+  const type = sniffImageType(buffer);
+  if (!type) return null;
+  const trimmed = type === "image/png" ? await trimPng(buffer, type) : buffer;
+  const data = {
+    name,
+    logo: trimmed,
+    logoType: type,
+    checkedAt: new Date()
+  };
+  const row = await db.artistArtwork.upsert({
+    where: { nameKey },
+    create: { nameKey, ...data },
+    update: data,
+    select: { id: true, updatedAt: true }
+  });
+  return `/api/artists/artwork/${row.id}/logo?v=${row.updatedAt.valueOf()}`;
 }
