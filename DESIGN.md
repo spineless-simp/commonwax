@@ -197,6 +197,10 @@ The palette is mostly neutral and mineral; album artwork provides chroma, while 
 
 **The Derived Shade Rule.** Contextual hover, muted-on-dark, error-ink, and state shades are calculated from the normative palette with `color-mix()`; do not introduce one-off color literals.
 
+### Theming
+
+The palette above is the default (Dark) theme and the one this document's frontmatter and Do's and Don'ts describe. A member may instead choose Light, Dark High Contrast, or Light High Contrast from Settings → Appearance; each is a full override of the same token set (`ink`, `chrome`, `canvas`, `surface`, `muted`, `line`, `accent`, `danger`, `shadow-low`/`shadow-high`) in `apps/web/src/styles.css`, applied via a `data-theme` attribute so every derived, `color-mix()`-built shade re-resolves automatically. The two high-contrast themes push toward pure black/white with sharper borders and a brighter accent for stronger legibility. fanart.tv artist wordmarks, which ship as white lettering on transparency, are inverted in the two light themes wherever they sit on a themed surface — the album plate's fixed dark "vinyl label" background and the artist header's photographic backdrop are exempted, since neither follows site theme.
+
 ## Typography
 
 **Display Font:** Instrument Sans Variable (with Helvetica Neue, Arial, sans-serif fallbacks)

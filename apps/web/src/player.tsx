@@ -433,7 +433,7 @@ export function PlayerBar() {
               {player.current
                 ? artistLogo
                   ? <small><ArtistLettering name={player.current.artist.name} /></small>
-                  : <small>{player.current.artist.name} · {player.current.album.title}</small>
+                  : <small>{player.current.artist.name}</small>
                 : <small>Nothing playing</small>}
               {player.current && <strong>{player.current.title}</strong>}
             </span>
